@@ -28,7 +28,14 @@ def init_tracer():
 
     service_name = getattr(settings, "SERVICE_NAME", "django-otel-observability")
     service_version = getattr(settings, "SERVICE_VERSION", "1.0.0")
-    resource = Resource.create({"service.name": service_name, "service.version": service_version})
+    resource = Resource.create(
+        {
+            "service.name": service_name,
+            "service.version": service_version,
+        }
+    )
+
+
 
     tracer_provider = TracerProvider(resource=resource)
     trace.set_tracer_provider(tracer_provider)

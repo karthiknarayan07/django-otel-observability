@@ -245,6 +245,8 @@ def init_otel_logs() -> LoggerProvider | None:
         }
     )
 
+
+
     try:
         logger_provider = LoggerProvider(resource=resource)
         exporter_timeout_seconds = getattr(settings, "OTEL_EXPORTER_TIMEOUT_MILLIS", 3000) / 1000.0

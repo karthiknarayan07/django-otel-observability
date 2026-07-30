@@ -1,211 +1,123 @@
-// Deprecated file, Do not modify or delete
-local.file_match "django" {
-    path_targets = [{
-    __path__    = "/logs/*.log",
-    sync_period = "30s",
-    }]
-}
+// ALLOY CONFIGURATION FOR OPENTELEMETRY TRACES, METRICS & LOGS
 
-loki.source.file "django" {
-    targets    = local.file_match.django.targets
-    forward_to = [loki.process.django.receiver]
-}
-
-loki.process "django" {
-    forward_to = [loki.write.default.receiver]
-
-    stage.json {
-    expressions = {
-        timestamp    = "timestamp",
-        level        = "level",
-        module       = "module",
-        operation    = "operation",
-        request_path = "request_path",
-        user_id      = "user_id",
-        request_id   = "request_id",
-        trace_id     = "trace_id",
-        job_id       = "job_id",
-    }
-    }
-
-    stage.labels {
-    values = {
-        level = "level",
-    }
-    }
-
-    // Add min_level from environment variable
-    stage.static_labels {
-    values = {
-        min_level = sys.env("MIN_LOG_LEVEL"),
-    }
-    }
-
-    stage.replace {
-    source     = "min_level"
-    expression = "^$"
-    replace    = "debug"
-    }
-
-    // Drop logs below INFO
-    stage.match {
-    selector = "{min_level=\"info\"}"
-
-    stage.drop {
-        source     = "level"
-        expression = "^(debug|trace)$"
-    }
-    }
-
-    // Drop logs below WARNING
-    stage.match {
-    selector = "{min_level=\"warning\"}"
-
-    stage.drop {
-        source     = "level"
-        expression = "^(debug|info|trace)$"
-    }
-    }
-
-    // Drop logs below ERROR
-    stage.match {
-    selector = "{min_level=\"error\"}"
-
-    stage.drop {
-        source     = "level"
-        expression = "^(debug|info|warning|trace)$"
-    }
-    }
-
-    stage.label_drop {
-    values = ["filename", "sync_period", "min_level"]
-    }
-
-    stage.structured_metadata {
-    values = {
-        module       = "module",
-        operation    = "operation",
-        request_path = "request_path",
-        user_id      = "user_id",
-        request_id   = "request_id",
-        trace_id     = "trace_id",
-        job_id       = "job_id",
-    }
-    }
-
-    stage.timestamp {
-    source           = "timestamp"
-    format           = "2006-01-02T15:04:05.000000Z"
-    fallback_formats = ["2006-01-02T15:04:05.000000000Z", "2006-01-02T15:04:05Z", "rfc3339", "rfc3339nano"]
-    }
-}
-
-loki.write "default" {
-    endpoint {
-    url       = sys.env("LOKI_URL")
-    tenant_id = sys.env("LGTM_TENANT_ID")
-
-    basic_auth {
-        username = sys.env("LOKI_USERNAME")
-        password = sys.env("LOKI_PASSWORD")
-    }
-    }
-
-    external_labels = {
-    namespace    = sys.env("NAMESPACE"),
-    service_name = sys.env("SERVICE_NAME"),
-    }
-}
-
-// OTEL CONFIGURATION - GRPC
-
-otelcol.receiver.otlp "grpc" {
+otelcol.receiver.otlp "default" {
     grpc {
-    endpoint = "0.0.0.0:4317"
+        endpoint = "0.0.0.0:4317"
+    }
+    http {
+        endpoint = "0.0.0.0:4318"
     }
 
     output {
-    traces  = [otelcol.processor.attributes.drop_and_add_labels.input]
-    metrics = [otelcol.processor.attributes.drop_and_add_labels.input]
+        traces  = [otelcol.processor.transform.add_resource_attributes.input]
+        metrics = [otelcol.processor.transform.add_resource_attributes.input]
+        logs    = [otelcol.processor.transform.add_resource_attributes.input]
     }
 }
 
-// Drop specified attributes/labels
-otelcol.processor.attributes "drop_and_add_labels" {
-    action {
-    key    = "instance"
-    action = "delete"
+// OTel Transform Processor to set Resource Attributes
+otelcol.processor.transform "add_resource_attributes" {
+    error_mode = "ignore"
+
+    log_statements {
+        context = "log"
+        statements = [
+            "set(resource.attributes[\"service.namespace\"], \"" + sys.env("NAMESPACE") + "\")",
+            "set(resource.attributes[\"namespace\"], \"" + sys.env("NAMESPACE") + "\")",
+            "set(resource.attributes[\"service.name\"], \"" + sys.env("SERVICE_NAME") + "\")",
+            "delete_key(log.attributes, \"instance\")",
+            "delete_key(log.attributes, \"job\")",
+            "delete_key(log.attributes, \"hostname\")",
+        ]
     }
 
-    action {
-    key    = "job"
-    action = "delete"
+    metric_statements {
+        context = "datapoint"
+        statements = [
+            "set(resource.attributes[\"service.namespace\"], \"" + sys.env("NAMESPACE") + "\")",
+            "set(resource.attributes[\"namespace\"], \"" + sys.env("NAMESPACE") + "\")",
+            "set(resource.attributes[\"service.name\"], \"" + sys.env("SERVICE_NAME") + "\")",
+        ]
     }
 
-    action {
-    key    = "hostname"
-    action = "delete"
-    }
-
-    action {
-    key    = "namespace"
-    value  = sys.env("NAMESPACE")
-    action = "upsert"
-    }
-
-    action {
-    key    = "service_name"
-    value  = sys.env("SERVICE_NAME")
-    action = "upsert"
+    trace_statements {
+        context = "span"
+        statements = [
+            "set(resource.attributes[\"service.namespace\"], \"" + sys.env("NAMESPACE") + "\")",
+            "set(resource.attributes[\"namespace\"], \"" + sys.env("NAMESPACE") + "\")",
+            "set(resource.attributes[\"service.name\"], \"" + sys.env("SERVICE_NAME") + "\")",
+        ]
     }
 
     output {
-    metrics = [otelcol.processor.batch.metrics.input]
-    traces  = [otelcol.processor.batch.traces.input]
+        metrics = [otelcol.processor.batch.metrics.input]
+        traces  = [otelcol.processor.batch.traces.input]
+        logs    = [otelcol.processor.batch.logs.input]
     }
 }
 
+// OTel Batch Processors
 otelcol.processor.batch "traces" {
     timeout             = "10s"
     send_batch_size     = 16
     send_batch_max_size = 128
 
     output {
-    traces = [otelcol.exporter.otlp.tempo.input]
+        traces = [otelcol.exporter.otlp.tempo.input]
     }
 }
 
 otelcol.processor.batch "metrics" {
     output {
-    metrics = [otelcol.exporter.otlphttp.mimir.input]
+        metrics = [otelcol.exporter.otlp.mimir.input]
     }
 }
+
+otelcol.processor.batch "logs" {
+    timeout             = "5s"
+    send_batch_size     = 16
+    send_batch_max_size = 128
+
+    output {
+        logs = [otelcol.exporter.loki.loki_exporter.input]
+    }
+}
+
+// EXPORTERS
 
 otelcol.exporter.otlp "tempo" {
     client {
-    endpoint = sys.env("TEMPO_URL")
-    headers  = {
-        "X-Scope-OrgID" = sys.env("LGTM_TENANT_ID"),
-    }
+        endpoint = sys.env("TEMPO_URL")
 
-    tls {
-        insecure             = true
-        insecure_skip_verify = true
-    }
-
-    write_buffer_size = "8MB"
+        tls {
+            insecure             = true
+            insecure_skip_verify = true
+        }
     }
 }
 
-otelcol.exporter.otlphttp "mimir" {
+otelcol.exporter.otlp "mimir" {
     client {
-    endpoint = sys.env("MIMIR_URL")
+        endpoint = sys.env("MIMIR_URL")
 
-    tls {
-        insecure = true
+        tls {
+            insecure             = true
+            insecure_skip_verify = true
+        }
     }
-    headers = {
-        "X-Scope-OrgID" = sys.env("LGTM_TENANT_ID"),
+}
+
+otelcol.exporter.loki "loki_exporter" {
+    forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+    endpoint {
+        url = sys.env("LOKI_URL")
     }
+
+    external_labels = {
+        namespace    = sys.env("NAMESPACE"),
+        service_name = sys.env("SERVICE_NAME"),
     }
 }

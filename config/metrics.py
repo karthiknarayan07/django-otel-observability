@@ -66,9 +66,9 @@ def init_metrics() -> tuple[metrics.Meter, dict]:
         {
             "service.name": getattr(settings, "SERVICE_NAME", "django-otel-observability"),
             "service.version": getattr(settings, "SERVICE_VERSION", "1.0.0"),
-            "namespace": getattr(settings, "NAMESPACE", "local"),
         }
     )
+
 
     meter_provider = MeterProvider(
         resource=resource,

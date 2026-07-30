@@ -4,6 +4,26 @@ services:
     container_name: otel-lgtm
     ports:
       - "3000:3000"
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:latest
+    container_name: alloy
+    ports:
       - "4317:4317"
       - "4318:4318"
+      - "12345:12345"
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+    command: run /etc/alloy/config.alloy --server.http.listen-addr=0.0.0.0:12345
+    environment:
+      - NAMESPACE=local
+      - SERVICE_NAME=django-otel-observability
+      - MIN_LOG_LEVEL=debug
+      - LGTM_TENANT_ID=anonymous
+      - TEMPO_URL=otel-lgtm:4317
+      - MIMIR_URL=otel-lgtm:4317
+      - LOKI_URL=http://otel-lgtm:3100/loki/api/v1/push
+    depends_on:
+      - otel-lgtm
     restart: unless-stopped
