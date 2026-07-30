@@ -22,19 +22,14 @@ otelcol.processor.transform "add_resource_attributes" {
     log_statements {
         context = "log"
         statements = [
-            "set(resource.attributes[\"service.namespace\"], \"" + sys.env("NAMESPACE") + "\")",
             "set(resource.attributes[\"namespace\"], \"" + sys.env("NAMESPACE") + "\")",
             "set(resource.attributes[\"service.name\"], \"" + sys.env("SERVICE_NAME") + "\")",
-            "delete_key(log.attributes, \"instance\")",
-            "delete_key(log.attributes, \"job\")",
-            "delete_key(log.attributes, \"hostname\")",
         ]
     }
 
     metric_statements {
         context = "datapoint"
         statements = [
-            "set(resource.attributes[\"service.namespace\"], \"" + sys.env("NAMESPACE") + "\")",
             "set(resource.attributes[\"namespace\"], \"" + sys.env("NAMESPACE") + "\")",
             "set(resource.attributes[\"service.name\"], \"" + sys.env("SERVICE_NAME") + "\")",
         ]
@@ -43,7 +38,6 @@ otelcol.processor.transform "add_resource_attributes" {
     trace_statements {
         context = "span"
         statements = [
-            "set(resource.attributes[\"service.namespace\"], \"" + sys.env("NAMESPACE") + "\")",
             "set(resource.attributes[\"namespace\"], \"" + sys.env("NAMESPACE") + "\")",
             "set(resource.attributes[\"service.name\"], \"" + sys.env("SERVICE_NAME") + "\")",
         ]
@@ -108,7 +102,25 @@ otelcol.exporter.otlp "mimir" {
 }
 
 otelcol.exporter.loki "loki_exporter" {
+    forward_to = [loki.process.clean_logs.receiver]
+}
+
+loki.process "clean_logs" {
     forward_to = [loki.write.default.receiver]
+
+    stage.json {
+        expressions = {
+            raw_body = "body",
+        }
+    }
+
+    stage.output {
+        source = "raw_body"
+    }
+
+    stage.label_drop {
+        values = ["job", "instance", "exporter", "filename"]
+    }
 }
 
 loki.write "default" {
